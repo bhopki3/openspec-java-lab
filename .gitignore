@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# IntelliJ
+.idea/
+*.iml
+
+# Java
+target/
+*.class
+*.jar
+
+# Gradle
+.gradle/
+build/
+
+# VS Code
+.vscode/
+
+# Environment
+.env
