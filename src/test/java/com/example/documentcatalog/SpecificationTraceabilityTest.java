@@ -13,7 +13,7 @@ class SpecificationTraceabilityTest {
 
     @Test
     void everyDocumentCatalogScenarioIsMappedInTheReadme() throws IOException {
-        Path spec = Path.of("openspec/changes/add-document-catalog/specs/document-catalog/spec.md");
+        Path spec = Path.of("openspec/specs/document-catalog/spec.md");
         String readme = Files.readString(Path.of("README.md"));
         List<String> scenarios = Files.readAllLines(spec).stream()
                 .filter(line -> line.startsWith("#### Scenario: "))

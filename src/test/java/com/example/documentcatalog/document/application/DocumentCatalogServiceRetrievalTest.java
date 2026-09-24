@@ -15,6 +15,7 @@ import com.example.documentcatalog.document.domain.DocumentMetadata;
 import com.example.documentcatalog.document.domain.DocumentType;
 import com.example.documentcatalog.document.persistence.DocumentMetadataMapper;
 import com.example.documentcatalog.document.persistence.DocumentMetadataRepository;
+import com.example.documentcatalog.document.persistence.DocumentRegistrationPersistence;
 import org.junit.jupiter.api.Test;
 
 class DocumentCatalogServiceRetrievalTest {
@@ -25,7 +26,8 @@ class DocumentCatalogServiceRetrievalTest {
         DocumentMetadataMapper mapper = new DocumentMetadataMapper();
         DocumentMetadata document = document();
         when(repository.findById(document.id())).thenReturn(Optional.of(mapper.toEntity(document)));
-        DocumentCatalogService service = new DocumentCatalogService(repository, mapper, Clock.systemUTC());
+        DocumentCatalogService service = new DocumentCatalogService(
+                repository, mock(DocumentRegistrationPersistence.class), mapper, Clock.systemUTC());
 
         assertThat(service.get(document.id())).isEqualTo(document);
     }
@@ -36,7 +38,8 @@ class DocumentCatalogServiceRetrievalTest {
         UUID id = UUID.randomUUID();
         when(repository.findById(id)).thenReturn(Optional.empty());
         DocumentCatalogService service = new DocumentCatalogService(
-                repository, new DocumentMetadataMapper(), Clock.systemUTC());
+                repository, mock(DocumentRegistrationPersistence.class),
+                new DocumentMetadataMapper(), Clock.systemUTC());
 
         assertThatThrownBy(() -> service.get(id))
                 .isInstanceOf(DocumentNotFoundException.class)

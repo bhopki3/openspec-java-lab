@@ -17,6 +17,7 @@ import com.example.documentcatalog.document.domain.DocumentMetadata;
 import com.example.documentcatalog.document.domain.DocumentType;
 import com.example.documentcatalog.document.persistence.DocumentMetadataMapper;
 import com.example.documentcatalog.document.persistence.DocumentMetadataRepository;
+import com.example.documentcatalog.document.persistence.DocumentRegistrationPersistence;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.PageImpl;
@@ -31,7 +32,8 @@ class DocumentCatalogServiceListingTest {
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
         when(repository.findByCustomerId(eq("Customer-A"), pageable.capture()))
                 .thenReturn(new PageImpl<>(List.of(mapper.toEntity(document()))));
-        DocumentCatalogService service = new DocumentCatalogService(repository, mapper, Clock.systemUTC());
+        DocumentCatalogService service = new DocumentCatalogService(
+                repository, mock(DocumentRegistrationPersistence.class), mapper, Clock.systemUTC());
 
         DocumentPage result = service.list(" Customer-A ", null, null, null);
 
@@ -48,7 +50,8 @@ class DocumentCatalogServiceListingTest {
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
         when(repository.findByCustomerIdAndDocumentType(eq("Customer-A"), eq(DocumentType.NOTICE), pageable.capture()))
                 .thenAnswer(invocation -> new PageImpl<>(List.of(), invocation.getArgument(2), 0));
-        DocumentCatalogService service = new DocumentCatalogService(repository, mapper, Clock.systemUTC());
+        DocumentCatalogService service = new DocumentCatalogService(
+                repository, mock(DocumentRegistrationPersistence.class), mapper, Clock.systemUTC());
 
         DocumentPage result = service.list("Customer-A", DocumentType.NOTICE, 2, 5);
 
@@ -63,7 +66,8 @@ class DocumentCatalogServiceListingTest {
     @Test
     void rejectsInvalidCustomerAndPagination() {
         DocumentCatalogService service = new DocumentCatalogService(
-                mock(DocumentMetadataRepository.class), new DocumentMetadataMapper(), Clock.systemUTC());
+                mock(DocumentMetadataRepository.class), mock(DocumentRegistrationPersistence.class),
+                new DocumentMetadataMapper(), Clock.systemUTC());
 
         assertThatThrownBy(() -> service.list(" ", null, 0, 20)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.list("Customer-A", null, -1, 20)).isInstanceOf(IllegalArgumentException.class);

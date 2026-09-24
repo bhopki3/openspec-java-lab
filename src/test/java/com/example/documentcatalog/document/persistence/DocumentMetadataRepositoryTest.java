@@ -36,6 +36,9 @@ class DocumentMetadataRepositoryTest {
     @Autowired
     DocumentMetadataMapper mapper;
 
+    @Autowired
+    DocumentRegistrationPersistence registrationPersistence;
+
     @BeforeEach
     void cleanDatabase() {
         repository.deleteAll();
@@ -66,6 +69,40 @@ class DocumentMetadataRepositoryTest {
         repository.saveAndFlush(mapper.toEntity(metadata(
                 UUID.randomUUID(), "source", "Doc", "C", DocumentType.LETTER, LocalDate.now())));
         assertThat(repository.count()).isEqualTo(2);
+    }
+
+    @Test
+    void conflictAwareInsertReportsCreationConflictAndCaseSensitiveIdentity() {
+        DocumentMetadata original = metadata(uuid(1), "Source", "Doc", "Customer-A",
+                DocumentType.STATEMENT, LocalDate.of(2026, 8, 31));
+        DocumentMetadata duplicate = metadata(uuid(2), "Source", "Doc", "Customer-B",
+                DocumentType.LETTER, LocalDate.of(2026, 9, 1));
+        DocumentMetadata caseDifference = metadata(uuid(3), "source", "Doc", "Customer-C",
+                DocumentType.NOTICE, LocalDate.of(2026, 10, 1));
+
+        assertThat(registrationPersistence.insertIfAbsent(mapper.toEntity(original))).isTrue();
+        assertThat(registrationPersistence.insertIfAbsent(mapper.toEntity(duplicate))).isFalse();
+        assertThat(registrationPersistence.insertIfAbsent(mapper.toEntity(caseDifference))).isTrue();
+
+        assertThat(repository.count()).isEqualTo(2);
+        assertThat(mapper.toDomain(repository.findBySourceSystemAndSourceDocumentId("Source", "Doc")
+                .orElseThrow())).isEqualTo(original);
+        assertThat(repository.findBySourceSystemAndSourceDocumentId("SOURCE", "Doc")).isEmpty();
+    }
+
+    @Test
+    void conflictAwareInsertDoesNotIgnoreAnUnrelatedUniqueConstraintViolation() {
+        DocumentMetadata original = metadata(uuid(1), "Source", "Doc", "Customer-A",
+                DocumentType.STATEMENT, LocalDate.of(2026, 8, 31));
+        DocumentMetadata duplicateCatalogId = metadata(uuid(1), "Other-Source", "Other-Doc", "Customer-B",
+                DocumentType.LETTER, LocalDate.of(2026, 9, 1));
+
+        assertThat(registrationPersistence.insertIfAbsent(mapper.toEntity(original))).isTrue();
+        assertThatThrownBy(() -> registrationPersistence.insertIfAbsent(mapper.toEntity(duplicateCatalogId)))
+                .isInstanceOf(DataIntegrityViolationException.class);
+
+        assertThat(repository.count()).isEqualTo(1);
+        assertThat(mapper.toDomain(repository.findById(original.id()).orElseThrow())).isEqualTo(original);
     }
 
     @Test
