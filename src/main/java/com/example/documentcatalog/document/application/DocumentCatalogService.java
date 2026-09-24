@@ -1,8 +1,8 @@
 package com.example.documentcatalog.document.application;
 
-import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import com.example.documentcatalog.document.domain.DocumentMetadata;
@@ -10,7 +10,7 @@ import com.example.documentcatalog.document.domain.DocumentType;
 import com.example.documentcatalog.document.persistence.DocumentMetadataEntity;
 import com.example.documentcatalog.document.persistence.DocumentMetadataMapper;
 import com.example.documentcatalog.document.persistence.DocumentMetadataRepository;
-import org.springframework.dao.DataIntegrityViolationException;
+import com.example.documentcatalog.document.persistence.DocumentRegistrationPersistence;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -21,27 +21,27 @@ import org.springframework.transaction.annotation.Transactional;
 public class DocumentCatalogService {
 
     private final DocumentMetadataRepository repository;
+    private final DocumentRegistrationPersistence registrationPersistence;
     private final DocumentMetadataMapper mapper;
     private final Clock clock;
 
-    public DocumentCatalogService(DocumentMetadataRepository repository, DocumentMetadataMapper mapper, Clock clock) {
+    public DocumentCatalogService(
+            DocumentMetadataRepository repository,
+            DocumentRegistrationPersistence registrationPersistence,
+            DocumentMetadataMapper mapper,
+            Clock clock) {
         this.repository = repository;
+        this.registrationPersistence = registrationPersistence;
         this.mapper = mapper;
         this.clock = clock;
     }
 
     @Transactional
-    public DocumentMetadata register(RegisterDocumentCommand command) {
-        String sourceSystem = command.sourceSystem().trim();
-        String sourceDocumentId = command.sourceDocumentId().trim();
-        if (repository.existsBySourceSystemAndSourceDocumentId(sourceSystem, sourceDocumentId)) {
-            throw new DuplicateDocumentException(sourceSystem, sourceDocumentId);
-        }
-
-        DocumentMetadata document = new DocumentMetadata(
+    public DocumentRegistrationResult register(RegisterDocumentCommand command) {
+        DocumentMetadata candidate = new DocumentMetadata(
                 UUID.randomUUID(),
-                sourceSystem,
-                sourceDocumentId,
+                command.sourceSystem(),
+                command.sourceDocumentId(),
                 command.customerId(),
                 command.documentType(),
                 command.filename(),
@@ -49,36 +49,34 @@ public class DocumentCatalogService {
                 command.sizeBytes(),
                 command.storageReference(),
                 command.documentDate(),
-                Instant.now(clock));
+                Instant.now(clock).truncatedTo(ChronoUnit.MICROS));
 
-        try {
-            DocumentMetadataEntity saved = repository.saveAndFlush(mapper.toEntity(document));
-            return mapper.toDomain(saved);
-        } catch (DataIntegrityViolationException exception) {
-            if (isSourceIdentityUniqueConstraintViolation(exception)) {
-                throw new DuplicateDocumentException(sourceSystem, sourceDocumentId);
-            }
-            throw exception;
+        if (registrationPersistence.insertIfAbsent(mapper.toEntity(candidate))) {
+            return new DocumentRegistrationResult(candidate, true);
         }
+
+        DocumentMetadata existing = repository.findBySourceSystemAndSourceDocumentId(
+                        candidate.sourceSystem(), candidate.sourceDocumentId())
+                .map(mapper::toDomain)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Source identity conflict was reported without an existing document"));
+
+        if (!hasSameProducerMetadata(existing, candidate)) {
+            throw new DuplicateDocumentException(candidate.sourceSystem(), candidate.sourceDocumentId());
+        }
+        return new DocumentRegistrationResult(existing, false);
     }
 
-    private static boolean isSourceIdentityUniqueConstraintViolation(Throwable failure) {
-        boolean uniqueConstraintViolation = false;
-        boolean sourceIdentityConstraintNamed = false;
-
-        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
-            if (cause instanceof SQLException sqlException && "23505".equals(sqlException.getSQLState())) {
-                uniqueConstraintViolation = true;
-            }
-            if (cause.getMessage() != null
-                    && cause.getMessage().contains("uk_document_metadata_source")) {
-                sourceIdentityConstraintNamed = true;
-            }
-            if (cause == cause.getCause()) {
-                break;
-            }
-        }
-        return uniqueConstraintViolation && sourceIdentityConstraintNamed;
+    private static boolean hasSameProducerMetadata(DocumentMetadata existing, DocumentMetadata candidate) {
+        return existing.sourceSystem().equals(candidate.sourceSystem())
+                && existing.sourceDocumentId().equals(candidate.sourceDocumentId())
+                && existing.customerId().equals(candidate.customerId())
+                && existing.documentType() == candidate.documentType()
+                && existing.filename().equals(candidate.filename())
+                && existing.contentType().equals(candidate.contentType())
+                && existing.sizeBytes() == candidate.sizeBytes()
+                && existing.storageReference().equals(candidate.storageReference())
+                && existing.documentDate().equals(candidate.documentDate());
     }
 
     @Transactional(readOnly = true)

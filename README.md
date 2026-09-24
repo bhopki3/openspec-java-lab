@@ -67,13 +67,14 @@ The repository keeps the reasoning and behavioral contract beside the code:
 4. Implement and verify each checkbox in `tasks.md` using `openspec-apply-change`.
 5. After implementation review, archive the change using `openspec-archive-change` so its delta spec becomes a durable project specification.
 
-The application intentionally excludes file upload/download, authentication, update/delete operations, and idempotent registration. Those are candidates for later changes that demonstrate specification evolution.
+The application intentionally excludes file upload/download, authentication, and update/delete operations. Those are candidates for later changes that demonstrate specification evolution.
 
 ## Specification traceability
 
-The initial capability is specified in `openspec/changes/add-document-catalog/specs/document-catalog/spec.md`. Each scenario maps to executable coverage:
+The capability is specified in `openspec/specs/document-catalog/spec.md`. Each scenario maps to executable coverage:
 
 - Scenario: **Register valid statement metadata** — `DocumentRegistrationHttpTest`, `DocumentCatalogEndToEndTest`
+- Scenario: **Replay identical normalized metadata** — `DocumentCatalogServiceRegistrationTest`, `DocumentRegistrationHttpTest`, `DuplicateRegistrationIntegrationTest`
 - Scenario: **Register future-dated metadata** — `DocumentMetadataTest`, `DocumentRegistrationHttpTest`
 - Scenario: **Preserve opaque storage reference** — `DocumentCatalogServiceRegistrationTest`, `DocumentCatalogEndToEndTest`
 - Scenario: **Register each supported document type** — `DocumentMetadataTest`, `DocumentRegistrationHttpTest`
@@ -84,9 +85,11 @@ The initial capability is specified in `openspec/changes/add-document-catalog/sp
 - Scenario: **Reject an oversized string field** — `DocumentMetadataTest`, `DocumentApiDtoTest`
 - Scenario: **Reject a non-positive document size** — `DocumentMetadataTest`, `DatabaseMigrationTest`, `ApiErrorContractTest`
 - Scenario: **Reject an unknown JSON property** — `DocumentApiDtoTest`, `ApiErrorContractTest`
-- Scenario: **Reject an existing source identity** — `DocumentMetadataRepositoryTest`, `DuplicateRegistrationIntegrationTest`, `ApiErrorContractTest`
+- Scenario: **Validate before resolving an existing identity** — `DocumentRegistrationHttpTest`
+- Scenario: **Reject an existing source identity** — `DocumentCatalogServiceRegistrationTest`, `DocumentRegistrationHttpTest`, `DuplicateRegistrationIntegrationTest`, `ApiErrorContractTest`
 - Scenario: **Allow source identifiers that differ by case** — `DatabaseMigrationTest`, `DocumentMetadataRepositoryTest`
 - Scenario: **Resolve a concurrent duplicate registration** — `DuplicateRegistrationIntegrationTest`
+- Scenario: **Resolve concurrent registrations with different metadata** — `DuplicateRegistrationIntegrationTest`
 - Scenario: **Retrieve an existing document** — `DocumentCatalogServiceRetrievalTest`, `DocumentRetrievalAndListingHttpTest`
 - Scenario: **Retrieve an unknown document** — `DocumentCatalogServiceRetrievalTest`, `DocumentRetrievalAndListingHttpTest`, `ApiErrorContractTest`
 - Scenario: **Reject a malformed document ID** — `DocumentRetrievalAndListingHttpTest`

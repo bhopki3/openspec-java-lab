@@ -1,10 +1,6 @@
-# document-catalog Specification
+# Spec Delta
 
-## Purpose
-
-Provide internal applications with a consistent catalog for registering and finding metadata about customer documents stored by external systems.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Register document metadata
 The system SHALL accept `POST /api/v1/documents` requests containing `sourceSystem`, `sourceDocumentId`, `customerId`, `documentType`, `filename`, `contentType`, `sizeBytes`, `storageReference`, and `documentDate`. After validation and normalization, the system SHALL use the case-sensitive `(sourceSystem, sourceDocumentId)` pair as the idempotency key. When no record has that source identity, the system SHALL assign a UUID `id`, assign a UTC `recordedAt` timestamp, persist the metadata without document content, and return `201 Created` with the created representation and a `Location` header identifying `/api/v1/documents/{id}`. When a record has that source identity and every producer-supplied metadata field is identical after normalization, the system SHALL leave the record unchanged and return `200 OK` with the original representation, including its original `id` and `recordedAt`, and a `Location` header identifying the original resource. Idempotency equality SHALL include all producer-supplied fields and SHALL exclude the generated `id` and `recordedAt` fields.
@@ -24,17 +20,6 @@ The system SHALL accept `POST /api/v1/documents` requests containing `sourceSyst
 #### Scenario: Preserve opaque storage reference
 - **WHEN** a producer registers a document with a nonblank `storageReference`
 - **THEN** the system stores and returns that reference unchanged and does not dereference or validate it against an external storage system
-
-### Requirement: Support defined document types
-The system SHALL accept exactly `STATEMENT`, `LETTER`, `NOTICE`, and `CUSTOMER_UPLOAD` as document types and SHALL persist document-type values by name.
-
-#### Scenario: Register each supported document type
-- **WHEN** a producer submits otherwise valid metadata using any defined document type
-- **THEN** the system accepts and returns that document type
-
-#### Scenario: Reject an unsupported document type
-- **WHEN** a producer submits a document type outside the defined set
-- **THEN** the system returns `400 Bad Request` using the Problem Details error contract
 
 ### Requirement: Validate registration input
 The system SHALL validate every registration request before resolving its idempotency key. The system SHALL require every registration field. It SHALL trim surrounding whitespace from string inputs, preserve their remaining casing, require nonblank strings, require `sizeBytes` to be greater than zero, and enforce maximum lengths of 100 characters for `sourceSystem`, 200 for `sourceDocumentId`, 100 for `customerId`, 255 for `filename`, 100 for `contentType`, and 500 for `storageReference`. The system SHALL reject unknown JSON properties.
@@ -86,55 +71,6 @@ The system SHALL treat the trimmed `(sourceSystem, sourceDocumentId)` pair as a 
 - **WHEN** two concurrent requests submit the same source identity with different normalized producer-supplied metadata
 - **THEN** exactly one record is created and returned with `201 Created`, the other request receives `409 Conflict`, and the stored record remains unchanged
 
-### Requirement: Retrieve document metadata by catalog ID
-The system SHALL expose `GET /api/v1/documents/{documentId}` and return the complete stored metadata representation when the UUID exists.
-
-#### Scenario: Retrieve an existing document
-- **WHEN** a consumer requests an existing catalog UUID
-- **THEN** the system returns `200 OK` with the complete metadata representation
-
-#### Scenario: Retrieve an unknown document
-- **WHEN** a consumer requests a valid UUID that does not exist
-- **THEN** the system returns `404 Not Found` using the Problem Details error contract
-
-#### Scenario: Reject a malformed document ID
-- **WHEN** a consumer requests a document using a value that is not a UUID
-- **THEN** the system returns `400 Bad Request` using the Problem Details error contract
-
-### Requirement: List customer document metadata
-The system SHALL expose `GET /api/v1/documents` with required `customerId` and optional `documentType`, `page`, and `size` query parameters. Results SHALL include only the exact case-sensitive `customerId`, SHALL optionally include only the requested document type, and SHALL be ordered by `documentDate` descending and then `id` descending.
-
-#### Scenario: List a customer's documents
-- **WHEN** a consumer lists metadata using a customer ID with matching records
-- **THEN** the system returns only that customer's records in the defined order
-
-#### Scenario: Filter a customer's documents by type
-- **WHEN** a consumer supplies a supported document type with the customer ID
-- **THEN** the system returns only records matching both the exact customer ID and document type
-
-#### Scenario: List a customer with no documents
-- **WHEN** a consumer lists metadata for a customer with no matching records
-- **THEN** the system returns `200 OK` with an empty `items` collection and zero totals
-
-### Requirement: Paginate list results
-The system SHALL use zero-based page numbers, default `page` to `0`, default `size` to `20`, and limit `size` to `100`. A successful list response SHALL contain `items`, `page`, `size`, `totalElements`, and `totalPages` without exposing framework-specific page serialization.
-
-#### Scenario: Use default pagination
-- **WHEN** a consumer omits `page` and `size`
-- **THEN** the system returns the first page with a requested size of 20 and the corresponding totals
-
-#### Scenario: Request a specific valid page
-- **WHEN** a consumer supplies a non-negative page and a size from 1 through 100
-- **THEN** the system returns that page and the corresponding totals
-
-#### Scenario: Reject invalid pagination
-- **WHEN** a consumer supplies a negative page, a size less than 1, or a size greater than 100
-- **THEN** the system returns `400 Bad Request` using the Problem Details error contract
-
-#### Scenario: Reject a missing customer ID
-- **WHEN** a consumer lists documents without a nonblank `customerId`
-- **THEN** the system returns `400 Bad Request` with a field error identifying `customerId`
-
 ### Requirement: Return consistent API errors
 The system SHALL represent `400`, `404`, `409`, and unexpected `500` responses using Spring-compatible Problem Details JSON. Each response SHALL contain `type`, `title`, `status`, and `detail`; validation responses SHALL additionally contain a structured `fieldErrors` extension. Error responses SHALL NOT expose Java exception names, stack traces, SQL, or database implementation details. A registration request whose source identity exists with different normalized metadata SHALL use the existing generic duplicate-document Problem Details contract.
 
@@ -149,10 +85,3 @@ The system SHALL represent `400`, `404`, `409`, and unexpected `500` responses u
 #### Scenario: Return unexpected failure problem details
 - **WHEN** an unexpected server failure prevents request completion
 - **THEN** the response contains a `500` Problem Details representation without internal exception or database details
-
-### Requirement: Keep catalog metadata immutable
-The initial capability SHALL provide no operation for updating or deleting registered document metadata.
-
-#### Scenario: Use the documented API surface
-- **WHEN** an internal application integrates with the initial document catalog capability
-- **THEN** the available document operations are registration, retrieval by catalog ID, and paginated customer listing only

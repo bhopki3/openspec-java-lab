@@ -4,6 +4,7 @@ import java.net.URI;
 import java.util.UUID;
 
 import com.example.documentcatalog.document.application.DocumentCatalogService;
+import com.example.documentcatalog.document.application.DocumentRegistrationResult;
 import com.example.documentcatalog.document.domain.DocumentType;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -36,12 +37,15 @@ public class DocumentController {
 
     @PostMapping
     ResponseEntity<DocumentMetadataResponse> register(@Valid @RequestBody RegisterDocumentRequest request) {
-        DocumentMetadataResponse response = mapper.toResponse(service.register(mapper.toCommand(request)));
+        DocumentRegistrationResult result = service.register(mapper.toCommand(request));
+        DocumentMetadataResponse response = mapper.toResponse(result.document());
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}")
                 .buildAndExpand(response.id())
                 .toUri();
-        return ResponseEntity.created(location).body(response);
+        return result.created()
+                ? ResponseEntity.created(location).body(response)
+                : ResponseEntity.ok().location(location).body(response);
     }
 
     @GetMapping("/{documentId}")
