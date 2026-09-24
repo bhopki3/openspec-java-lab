@@ -7,11 +7,15 @@ Provide internal applications with a consistent catalog for registering and find
 ## Requirements
 
 ### Requirement: Register document metadata
-The system SHALL accept `POST /api/v1/documents` requests containing `sourceSystem`, `sourceDocumentId`, `customerId`, `documentType`, `filename`, `contentType`, `sizeBytes`, `storageReference`, and `documentDate`. On successful registration, the system SHALL assign a UUID `id`, assign a UTC `recordedAt` timestamp, persist the metadata without document content, and return `201 Created` with the created representation and a `Location` header identifying `/api/v1/documents/{id}`.
+The system SHALL accept `POST /api/v1/documents` requests containing `sourceSystem`, `sourceDocumentId`, `customerId`, `documentType`, `filename`, `contentType`, `sizeBytes`, `storageReference`, and `documentDate`. After validation and normalization, the system SHALL use the case-sensitive `(sourceSystem, sourceDocumentId)` pair as the idempotency key. When no record has that source identity, the system SHALL assign a UUID `id`, assign a UTC `recordedAt` timestamp, persist the metadata without document content, and return `201 Created` with the created representation and a `Location` header identifying `/api/v1/documents/{id}`. When a record has that source identity and every producer-supplied metadata field is identical after normalization, the system SHALL leave the record unchanged and return `200 OK` with the original representation, including its original `id` and `recordedAt`, and a `Location` header identifying the original resource. Idempotency equality SHALL include all producer-supplied fields and SHALL exclude the generated `id` and `recordedAt` fields.
 
 #### Scenario: Register valid statement metadata
 - **WHEN** a producer submits complete, valid metadata for a statement whose source identity has not been registered
 - **THEN** the system stores the metadata and returns `201 Created` with the assigned `id`, assigned `recordedAt`, submitted metadata, and resource location
+
+#### Scenario: Replay identical normalized metadata
+- **WHEN** a producer submits valid metadata whose normalized source identity and all other normalized producer-supplied fields are identical to an existing record
+- **THEN** the system does not create or modify a record and returns `200 OK` with the existing record's original representation and resource location
 
 #### Scenario: Register future-dated metadata
 - **WHEN** a producer submits otherwise valid metadata with a future `documentDate`
@@ -33,7 +37,7 @@ The system SHALL accept exactly `STATEMENT`, `LETTER`, `NOTICE`, and `CUSTOMER_U
 - **THEN** the system returns `400 Bad Request` using the Problem Details error contract
 
 ### Requirement: Validate registration input
-The system SHALL require every registration field. It SHALL trim surrounding whitespace from string inputs, preserve their remaining casing, require nonblank strings, require `sizeBytes` to be greater than zero, and enforce maximum lengths of 100 characters for `sourceSystem`, 200 for `sourceDocumentId`, 100 for `customerId`, 255 for `filename`, 100 for `contentType`, and 500 for `storageReference`. The system SHALL reject unknown JSON properties.
+The system SHALL validate every registration request before resolving its idempotency key. The system SHALL require every registration field. It SHALL trim surrounding whitespace from string inputs, preserve their remaining casing, require nonblank strings, require `sizeBytes` to be greater than zero, and enforce maximum lengths of 100 characters for `sourceSystem`, 200 for `sourceDocumentId`, 100 for `customerId`, 255 for `filename`, 100 for `contentType`, and 500 for `storageReference`. The system SHALL reject unknown JSON properties.
 
 #### Scenario: Reject a missing required field
 - **WHEN** a registration request omits any required field
@@ -59,20 +63,28 @@ The system SHALL require every registration field. It SHALL trim surrounding whi
 - **WHEN** a registration request contains a property not defined by the registration contract
 - **THEN** the system returns `400 Bad Request` using the Problem Details error contract
 
+#### Scenario: Validate before resolving an existing identity
+- **WHEN** an invalid registration request contains a source identity that is already registered
+- **THEN** the system returns the applicable `400 Bad Request` response without treating the request as an idempotent replay or metadata conflict
+
 ### Requirement: Enforce unique source identity
-The system SHALL treat the trimmed `(sourceSystem, sourceDocumentId)` pair as a case-sensitive source identity and SHALL permit only one metadata record for each pair. Duplicate detection SHALL remain correct when concurrent requests attempt to register the same source identity.
+The system SHALL treat the trimmed `(sourceSystem, sourceDocumentId)` pair as a case-sensitive source identity and SHALL permit only one metadata record for each pair. An existing source identity with different normalized producer-supplied metadata SHALL be a conflict and SHALL NOT modify the existing record. Source-identity uniqueness and idempotency resolution SHALL remain correct when concurrent requests attempt to register the same source identity.
 
 #### Scenario: Reject an existing source identity
-- **WHEN** a producer registers metadata whose case-sensitive source identity already exists
-- **THEN** the system returns `409 Conflict` and does not create another record
+- **WHEN** a producer submits valid metadata whose case-sensitive source identity exists but at least one other producer-supplied field differs after normalization
+- **THEN** the system returns `409 Conflict` using the existing generic Problem Details contract and does not modify or create a record
 
 #### Scenario: Allow source identifiers that differ by case
 - **WHEN** a producer registers metadata whose source identity differs from an existing identity only by letter case
 - **THEN** the system creates a distinct record
 
 #### Scenario: Resolve a concurrent duplicate registration
-- **WHEN** concurrent requests attempt to register the same source identity
-- **THEN** exactly one record is created and each rejected request receives `409 Conflict`
+- **WHEN** concurrent requests submit identical normalized producer-supplied metadata for the same source identity
+- **THEN** exactly one record is created, one request returns `201 Created`, every other request returns `200 OK`, and every response identifies the same stored resource
+
+#### Scenario: Resolve concurrent registrations with different metadata
+- **WHEN** two concurrent requests submit the same source identity with different normalized producer-supplied metadata
+- **THEN** exactly one record is created and returned with `201 Created`, the other request receives `409 Conflict`, and the stored record remains unchanged
 
 ### Requirement: Retrieve document metadata by catalog ID
 The system SHALL expose `GET /api/v1/documents/{documentId}` and return the complete stored metadata representation when the UUID exists.
@@ -124,15 +136,15 @@ The system SHALL use zero-based page numbers, default `page` to `0`, default `si
 - **THEN** the system returns `400 Bad Request` with a field error identifying `customerId`
 
 ### Requirement: Return consistent API errors
-The system SHALL represent `400`, `404`, `409`, and unexpected `500` responses using Spring-compatible Problem Details JSON. Each response SHALL contain `type`, `title`, `status`, and `detail`; validation responses SHALL additionally contain a structured `fieldErrors` extension. Error responses SHALL NOT expose Java exception names, stack traces, SQL, or database implementation details.
+The system SHALL represent `400`, `404`, `409`, and unexpected `500` responses using Spring-compatible Problem Details JSON. Each response SHALL contain `type`, `title`, `status`, and `detail`; validation responses SHALL additionally contain a structured `fieldErrors` extension. Error responses SHALL NOT expose Java exception names, stack traces, SQL, or database implementation details. A registration request whose source identity exists with different normalized metadata SHALL use the existing generic duplicate-document Problem Details contract.
 
 #### Scenario: Return validation problem details
 - **WHEN** a request fails field validation
 - **THEN** the response contains Problem Details fields and structured field errors without internal implementation details
 
 #### Scenario: Return conflict problem details
-- **WHEN** registration conflicts with an existing source identity
-- **THEN** the response contains a `409` Problem Details representation without database implementation details
+- **WHEN** registration uses an existing source identity with different normalized producer-supplied metadata
+- **THEN** the response contains the existing generic `409` Problem Details representation without database implementation details
 
 #### Scenario: Return unexpected failure problem details
 - **WHEN** an unexpected server failure prevents request completion
